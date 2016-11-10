@@ -48,7 +48,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
     ```
 
 ## Setup truffle
-1. Open the Truffle console
+1. Open the Truffle console on a new terminal
     ```
     truffle console
     ```
