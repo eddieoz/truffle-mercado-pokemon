@@ -6,9 +6,13 @@ module.exports = function(deployer) {
   deployer.deploy(PokeCoin, {gas:1208832}).then(function(){
       pokecoin = PokeCoin.deployed();
       pokeCoinAddress = pokecoin.address;
-      pokecoin.issueNew(10000, {gas:2000000});
-      pokecoin.transfer(account1Demo, 5000, {from:web3.eth.accounts[0],gas:2000000});
-      pokecoin.transfer(account2Demo, 5000, {from:web3.eth.accounts[0],gas:2000000});
+      pokecoin.issueNew(10000, {gas:2000000}).then(function(){
+        return pokecoin.transfer(account1Demo, 5000, {from:web3.eth.accounts[0],gas:2000000});
+      }).then(function(){
+        return pokecoin.transfer(account2Demo, 5000, {from:web3.eth.accounts[0],gas:2000000});
+      });
+
+
     });
   deployer.deploy(PokeCentral, {gas:3548144}).then(function(){
     pokecentral = PokeCentral.deployed();
@@ -22,22 +26,20 @@ module.exports = function(deployer) {
     });
 
     pokecentral.newPokemon(4,546,80, {from:web3.eth.accounts[0],gas:350000}).then(function(){
-      pokecentral.transferPokemon(web3.eth.accounts[0], account2Demo, 3,{from:web3.eth.accounts[0],gas:2000000});
+      return pokecentral.transferPokemon(web3.eth.accounts[0], account2Demo, 3,{from:web3.eth.accounts[0],gas:2000000});
     });
 
     pokecentral.newPokemon(2,557,90, {from:web3.eth.accounts[0],gas:350000}).then(function(){
-      pokecentral.transferPokemon(web3.eth.accounts[0], account1Demo, 4,{from:web3.eth.accounts[0],gas:2000000});
+      return pokecentral.transferPokemon(web3.eth.accounts[0], account1Demo, 4,{from:web3.eth.accounts[0],gas:2000000});
     });
 
 
   });
   deployer.deploy(PokeMarket, {gas:1712961}).then(function(){
     pokemarket = PokeMarket.deployed();
-    pokemarket.newSale(account1Demo, 1, 2000, {from:web3.eth.accounts[0],gas:2000000}).then(function(){
-      return pokemarket.updatePokecoinAndPokemarketAddresses(pokeCoinAddress, pokeCentralAddress, {from:web3.eth.accounts[0],gas:2000000}).then(function(){
-        return pokecoin.updatePokeMarketAddress(pokemarket.address, {from:web3.eth.accounts[0],gas:2000000}).then(function(){
-          return pokecentral.updatePokeMarketAddress(pokemarket.address, {from:web3.eth.accounts[0],gas:2000000});
-        });
+    return pokemarket.updatePokecoinAndPokemarketAddresses(pokeCoinAddress, pokeCentralAddress, {from:web3.eth.accounts[0],gas:2000000}).then(function(){
+      return pokecoin.updatePokeMarketAddress(pokemarket.address, {from:web3.eth.accounts[0],gas:2000000}).then(function(){
+        return pokecentral.updatePokeMarketAddress(pokemarket.address, {from:web3.eth.accounts[0],gas:2000000});
       });
     });
   });
