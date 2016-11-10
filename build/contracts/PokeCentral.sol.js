@@ -1,0 +1,1093 @@
+var Web3 = require("web3");
+var SolidityEvent = require("web3/lib/web3/event.js");
+
+(function() {
+  // Planned for future features, logging, etc.
+  function Provider(provider) {
+    this.provider = provider;
+  }
+
+  Provider.prototype.send = function() {
+    this.provider.send.apply(this.provider, arguments);
+  };
+
+  Provider.prototype.sendAsync = function() {
+    this.provider.sendAsync.apply(this.provider, arguments);
+  };
+
+  var BigNumber = (new Web3()).toBigNumber(0).constructor;
+
+  var Utils = {
+    is_object: function(val) {
+      return typeof val == "object" && !Array.isArray(val);
+    },
+    is_big_number: function(val) {
+      if (typeof val != "object") return false;
+
+      // Instanceof won't work because we have multiple versions of Web3.
+      try {
+        new BigNumber(val);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+    merge: function() {
+      var merged = {};
+      var args = Array.prototype.slice.call(arguments);
+
+      for (var i = 0; i < args.length; i++) {
+        var object = args[i];
+        var keys = Object.keys(object);
+        for (var j = 0; j < keys.length; j++) {
+          var key = keys[j];
+          var value = object[key];
+          merged[key] = value;
+        }
+      }
+
+      return merged;
+    },
+    promisifyFunction: function(fn, C) {
+      var self = this;
+      return function() {
+        var instance = this;
+
+        var args = Array.prototype.slice.call(arguments);
+        var tx_params = {};
+        var last_arg = args[args.length - 1];
+
+        // It's only tx_params if it's an object and not a BigNumber.
+        if (Utils.is_object(last_arg) && !Utils.is_big_number(last_arg)) {
+          tx_params = args.pop();
+        }
+
+        tx_params = Utils.merge(C.class_defaults, tx_params);
+
+        return new Promise(function(accept, reject) {
+          var callback = function(error, result) {
+            if (error != null) {
+              reject(error);
+            } else {
+              accept(result);
+            }
+          };
+          args.push(tx_params, callback);
+          fn.apply(instance.contract, args);
+        });
+      };
+    },
+    synchronizeFunction: function(fn, instance, C) {
+      var self = this;
+      return function() {
+        var args = Array.prototype.slice.call(arguments);
+        var tx_params = {};
+        var last_arg = args[args.length - 1];
+
+        // It's only tx_params if it's an object and not a BigNumber.
+        if (Utils.is_object(last_arg) && !Utils.is_big_number(last_arg)) {
+          tx_params = args.pop();
+        }
+
+        tx_params = Utils.merge(C.class_defaults, tx_params);
+
+        return new Promise(function(accept, reject) {
+
+          var decodeLogs = function(logs) {
+            return logs.map(function(log) {
+              var logABI = C.events[log.topics[0]];
+
+              if (logABI == null) {
+                return null;
+              }
+
+              var decoder = new SolidityEvent(null, logABI, instance.address);
+              return decoder.decode(log);
+            }).filter(function(log) {
+              return log != null;
+            });
+          };
+
+          var callback = function(error, tx) {
+            if (error != null) {
+              reject(error);
+              return;
+            }
+
+            var timeout = C.synchronization_timeout || 240000;
+            var start = new Date().getTime();
+
+            var make_attempt = function() {
+              C.web3.eth.getTransactionReceipt(tx, function(err, receipt) {
+                if (err) return reject(err);
+
+                if (receipt != null) {
+                  // If they've opted into next gen, return more information.
+                  if (C.next_gen == true) {
+                    return accept({
+                      tx: tx,
+                      receipt: receipt,
+                      logs: decodeLogs(receipt.logs)
+                    });
+                  } else {
+                    return accept(tx);
+                  }
+                }
+
+                if (timeout > 0 && new Date().getTime() - start > timeout) {
+                  return reject(new Error("Transaction " + tx + " wasn't processed in " + (timeout / 1000) + " seconds!"));
+                }
+
+                setTimeout(make_attempt, 1000);
+              });
+            };
+
+            make_attempt();
+          };
+
+          args.push(tx_params, callback);
+          fn.apply(self, args);
+        });
+      };
+    }
+  };
+
+  function instantiate(instance, contract) {
+    instance.contract = contract;
+    var constructor = instance.constructor;
+
+    // Provision our functions.
+    for (var i = 0; i < instance.abi.length; i++) {
+      var item = instance.abi[i];
+      if (item.type == "function") {
+        if (item.constant == true) {
+          instance[item.name] = Utils.promisifyFunction(contract[item.name], constructor);
+        } else {
+          instance[item.name] = Utils.synchronizeFunction(contract[item.name], instance, constructor);
+        }
+
+        instance[item.name].call = Utils.promisifyFunction(contract[item.name].call, constructor);
+        instance[item.name].sendTransaction = Utils.promisifyFunction(contract[item.name].sendTransaction, constructor);
+        instance[item.name].request = contract[item.name].request;
+        instance[item.name].estimateGas = Utils.promisifyFunction(contract[item.name].estimateGas, constructor);
+      }
+
+      if (item.type == "event") {
+        instance[item.name] = contract[item.name];
+      }
+    }
+
+    instance.allEvents = contract.allEvents;
+    instance.address = contract.address;
+    instance.transactionHash = contract.transactionHash;
+  };
+
+  // Use inheritance to create a clone of this contract,
+  // and copy over contract's static functions.
+  function mutate(fn) {
+    var temp = function Clone() { return fn.apply(this, arguments); };
+
+    Object.keys(fn).forEach(function(key) {
+      temp[key] = fn[key];
+    });
+
+    temp.prototype = Object.create(fn.prototype);
+    bootstrap(temp);
+    return temp;
+  };
+
+  function bootstrap(fn) {
+    fn.web3 = new Web3();
+    fn.class_defaults  = fn.prototype.defaults || {};
+
+    // Set the network iniitally to make default data available and re-use code.
+    // Then remove the saved network id so the network will be auto-detected on first use.
+    fn.setNetwork("default");
+    fn.network_id = null;
+    return fn;
+  };
+
+  // Accepts a contract object created with web3.eth.contract.
+  // Optionally, if called without `new`, accepts a network_id and will
+  // create a new version of the contract abstraction with that network_id set.
+  function Contract() {
+    if (this instanceof Contract) {
+      instantiate(this, arguments[0]);
+    } else {
+      var C = mutate(Contract);
+      var network_id = arguments.length > 0 ? arguments[0] : "default";
+      C.setNetwork(network_id);
+      return C;
+    }
+  };
+
+  Contract.currentProvider = null;
+
+  Contract.setProvider = function(provider) {
+    var wrapped = new Provider(provider);
+    this.web3.setProvider(wrapped);
+    this.currentProvider = provider;
+  };
+
+  Contract.new = function() {
+    if (this.currentProvider == null) {
+      throw new Error("PokeCentral error: Please call setProvider() first before calling new().");
+    }
+
+    var args = Array.prototype.slice.call(arguments);
+
+    if (!this.unlinked_binary) {
+      throw new Error("PokeCentral error: contract binary not set. Can't deploy new instance.");
+    }
+
+    var regex = /__[^_]+_+/g;
+    var unlinked_libraries = this.binary.match(regex);
+
+    if (unlinked_libraries != null) {
+      unlinked_libraries = unlinked_libraries.map(function(name) {
+        // Remove underscores
+        return name.replace(/_/g, "");
+      }).sort().filter(function(name, index, arr) {
+        // Remove duplicates
+        if (index + 1 >= arr.length) {
+          return true;
+        }
+
+        return name != arr[index + 1];
+      }).join(", ");
+
+      throw new Error("PokeCentral contains unresolved libraries. You must deploy and link the following libraries before you can deploy a new version of PokeCentral: " + unlinked_libraries);
+    }
+
+    var self = this;
+
+    return new Promise(function(accept, reject) {
+      var contract_class = self.web3.eth.contract(self.abi);
+      var tx_params = {};
+      var last_arg = args[args.length - 1];
+
+      // It's only tx_params if it's an object and not a BigNumber.
+      if (Utils.is_object(last_arg) && !Utils.is_big_number(last_arg)) {
+        tx_params = args.pop();
+      }
+
+      tx_params = Utils.merge(self.class_defaults, tx_params);
+
+      if (tx_params.data == null) {
+        tx_params.data = self.binary;
+      }
+
+      // web3 0.9.0 and above calls new twice this callback twice.
+      // Why, I have no idea...
+      var intermediary = function(err, web3_instance) {
+        if (err != null) {
+          reject(err);
+          return;
+        }
+
+        if (err == null && web3_instance != null && web3_instance.address != null) {
+          accept(new self(web3_instance));
+        }
+      };
+
+      args.push(tx_params, intermediary);
+      contract_class.new.apply(contract_class, args);
+    });
+  };
+
+  Contract.at = function(address) {
+    if (address == null || typeof address != "string" || address.length != 42) {
+      throw new Error("Invalid address passed to PokeCentral.at(): " + address);
+    }
+
+    var contract_class = this.web3.eth.contract(this.abi);
+    var contract = contract_class.at(address);
+
+    return new this(contract);
+  };
+
+  Contract.deployed = function() {
+    if (!this.address) {
+      throw new Error("Cannot find deployed address: PokeCentral not deployed or address not set.");
+    }
+
+    return this.at(this.address);
+  };
+
+  Contract.defaults = function(class_defaults) {
+    if (this.class_defaults == null) {
+      this.class_defaults = {};
+    }
+
+    if (class_defaults == null) {
+      class_defaults = {};
+    }
+
+    var self = this;
+    Object.keys(class_defaults).forEach(function(key) {
+      var value = class_defaults[key];
+      self.class_defaults[key] = value;
+    });
+
+    return this.class_defaults;
+  };
+
+  Contract.extend = function() {
+    var args = Array.prototype.slice.call(arguments);
+
+    for (var i = 0; i < arguments.length; i++) {
+      var object = arguments[i];
+      var keys = Object.keys(object);
+      for (var j = 0; j < keys.length; j++) {
+        var key = keys[j];
+        var value = object[key];
+        this.prototype[key] = value;
+      }
+    }
+  };
+
+  Contract.all_networks = {
+  "default": {
+    "abi": [
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "address"
+          },
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "name": "balanceOf",
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "marketAddress",
+            "type": "address"
+          }
+        ],
+        "name": "updatePokeMarketAddress",
+        "outputs": [],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [],
+        "name": "totalPokemonSupply",
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "name": "pokeOwnerIndex",
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "name": "pokeMasters",
+        "outputs": [
+          {
+            "name": "pokeMaster",
+            "type": "address"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [],
+        "name": "pokeMarketAddress",
+        "outputs": [
+          {
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "name": "pokemonToMaster",
+        "outputs": [
+          {
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "name": "pokemons",
+        "outputs": [
+          {
+            "name": "pokeNumber",
+            "type": "uint256"
+          },
+          {
+            "name": "pokeName",
+            "type": "string"
+          },
+          {
+            "name": "pokeType",
+            "type": "string"
+          },
+          {
+            "name": "pokeCP",
+            "type": "uint256"
+          },
+          {
+            "name": "pokeHP",
+            "type": "uint256"
+          },
+          {
+            "name": "pokemonHash",
+            "type": "bytes32"
+          },
+          {
+            "name": "pokeOwner",
+            "type": "address"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [],
+        "name": "owner",
+        "outputs": [
+          {
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "_pokemonID",
+            "type": "uint256"
+          },
+          {
+            "name": "_cp",
+            "type": "uint256"
+          },
+          {
+            "name": "_hp",
+            "type": "uint256"
+          }
+        ],
+        "name": "updatePokemon",
+        "outputs": [
+          {
+            "name": "success",
+            "type": "bool"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "pokemonNumber",
+            "type": "uint256"
+          },
+          {
+            "name": "cp",
+            "type": "uint256"
+          },
+          {
+            "name": "hp",
+            "type": "uint256"
+          }
+        ],
+        "name": "newPokemon",
+        "outputs": [
+          {
+            "name": "success",
+            "type": "bool"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "_from",
+            "type": "address"
+          },
+          {
+            "name": "_to",
+            "type": "address"
+          },
+          {
+            "name": "_pokemonID",
+            "type": "uint256"
+          }
+        ],
+        "name": "transferPokemon",
+        "outputs": [
+          {
+            "name": "pokemonID",
+            "type": "uint256"
+          },
+          {
+            "name": "from",
+            "type": "address"
+          },
+          {
+            "name": "to",
+            "type": "address"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          },
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "name": "pokemonNameTypes",
+        "outputs": [
+          {
+            "name": "",
+            "type": "string"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "pokemonMaster",
+            "type": "address"
+          }
+        ],
+        "name": "newPokemonMaster",
+        "outputs": [
+          {
+            "name": "success",
+            "type": "bool"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [],
+        "name": "owned",
+        "outputs": [],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "_pokeOwner",
+            "type": "address"
+          }
+        ],
+        "name": "listPokemons",
+        "outputs": [
+          {
+            "name": "",
+            "type": "address"
+          },
+          {
+            "name": "",
+            "type": "uint256[]"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [
+          {
+            "name": "newOwner",
+            "type": "address"
+          }
+        ],
+        "name": "transferOwnership",
+        "outputs": [],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          {
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "name": "totalPokemonsFromMaster",
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "payable": false,
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "name": "account1Demo",
+            "type": "address"
+          },
+          {
+            "name": "account2Demo",
+            "type": "address"
+          }
+        ],
+        "type": "constructor"
+      },
+      {
+        "payable": false,
+        "type": "fallback"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "from",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "name": "to",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "name": "value",
+            "type": "uint256"
+          }
+        ],
+        "name": "Transfer",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "indexed": false,
+            "name": "cp",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "hp",
+            "type": "uint256"
+          }
+        ],
+        "name": "CreatePokemon",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "indexed": false,
+            "name": "cp",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "hp",
+            "type": "uint256"
+          }
+        ],
+        "name": "UpdatePokemon",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "name": "total",
+            "type": "uint256"
+          }
+        ],
+        "name": "UpdateMasterPokemons",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "number",
+            "type": "uint256"
+          }
+        ],
+        "name": "Log1",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "message",
+            "type": "string"
+          }
+        ],
+        "name": "Log2",
+        "type": "event"
+      }
+    ],
+    "unlinked_binary": "0x60096101408181527f506f6b656d6f6e203000000000000000000000000000000000000000000000006101605261010090815260076101808181527f696e76616c6964000000000000000000000000000000000000000000000000006101a052610120526060828152600b6102009081527f42756c626173736175726f000000000000000000000000000000000000000000610220526101c0908152600c6102409081527f47726173732f506f69736f6e0000000000000000000000000000000000000000610260526101e052608052600a6102c09081527f436861726d616e646572000000000000000000000000000000000000000000006102e05261028090815260046103009081527f4669726500000000000000000000000000000000000000000000000000000000610320526102a05260a05260086103809081527f5371756972746c650000000000000000000000000000000000000000000000006103a05261034090815260056103c08181527f57617465720000000000000000000000000000000000000000000000000000006103e0526103605260c0919091526104408381527f50696b6163687500000000000000000000000000000000000000000000000000610460526104009081526104c06040526104809384527f456c6574726963000000000000000000000000000000000000000000000000006104a0526104209390935260e092909252835491845560008490527f6e1540171b6c0c960b71a7020d9f60077f6af931a8bbf590da0223dacf75c7af918201929091905b828111156102d357825182546002845560008481526020902084929181019190604082015b82811115610300578251829080519060200190828054600181600116156101000203166002900490600052602060002090601f016020900481019282601f1061034057805160ff19168380011785555b506103709291505b8082111561038157600081556001016102bf565b506103b49291505b80821115610381578054600080835582815260208120909161042f919081019061043f565b506103859291505b80821115610381576000818150805460018160011615610100020316600290046000825580601f1061039657505b5050600101610308565b828001600101855582156102b7579182015b828111156102b7578251826000505591602001919060010190610352565b505091602001919060010190610267565b5090565b505091602001919060010190610242565b601f01602090049060005260206000209081019061033691906102bf565b505060405160408061290383398101604052808051906020019091908051906020019091905050600080546c0100000000000000000000000033810204600160a060020a0319909116179081905561048f90600160a060020a0316600080548190819033600160a060020a039081169116146104d457610002565b50506001016102db565b50506001015b80821115610381576000818150805460018160011615610100020316600290046000825580601f106104715750610439565b601f01602090049060005260206000209081019061043991906102bf565b506104b9600060006000600080548190819033600160a060020a039081169116146105ae57610002565b5060028054600019019055505061195280610fb16000396000f35b600480546001810180835590919082801582901161050b5760020281600202836000526020600020918201910161050b919061057a565b50505091506004600050828154811015610002576000918252602080832060029092029091018054600160a060020a0319166c0100000000000000000000000088810204179055600160a060020a03909516815260069094525060409092209190915550600190565b50506002015b80821115610381578054600160a060020a0319168155600181018054600080835591825260208220610574918101906102bf565b60038054600181018083559091908280158290116105e5576007028160070283600052602060002091820191016105e591906106ce565b505050915060036000508281548110156100025790600052602060002090600702016000508681556009805491925090879081101561000257906000526020600020900160005060008154811015610002579060005260206000209001600050816001016000509080546001816001161561010002031660029004828054600181600116156101000203166002900490600052602060002090601f016020900481019282601f1061077457805485555b506107b09291506102bf565b5050600060038201819055600482018190556005820155600681018054600160a060020a03191690556007015b80821115610381576000600082016000506000905560018201600050805460018160011615610100020316600290046000825580601f1061073857505b5060028201600050805460018160011615610100020316600290046000825580601f1061075657506106a1565b601f01602090049060005260206000209081019061070b91906102bf565b601f0160209004906000526020600020908101906106a191906102bf565b8280016001018555821561069557600052602060002091601f016020900482015b82811115610695578254825591600101919060010190610795565b505060098054879081101561000257906000526020600020900160005060018154811015610002579060005260206000209001600050816002016000509080546001816001161561010002031660029004828054600181600116156101000203166002900490600052602060002090601f016020900481019282601f1061084257805485555b5061087e9291506102bf565b8280016001018555821561083657600052602060002091601f016020900482015b82811115610836578254825591600101919060010190610863565b5050600381018590556004810184905580546040518181526001808401805490926002808701938b938b939260208401928892908116156101000260001901160480156109025780601f106108e0576101008083540402835291820191610902565b820191906000526020600020905b8154815290600101906020018083116108ee575b50508480546001816001161561010002031660029004801561095b5780601f1061093957610100808354040283529182019161095b565b820191906000526020600020905b815481529060010190602001808311610947575b5050928352506020808301919091526040805192839003810183206005888101919091556000805460068a0180546c01000000000000000000000000600160a060020a039384168102819004600160a060020a03199283161790925583548d855294875285842080549584168302929092049416939093179092558054938501909252818452610a28965091821694508793509190829081908190819081908190819033168b14801590610a1e575060015433600160a060020a03908116911614155b15610b1157610002565b505060028054600190810182556003840154600485015460408051888152908101839052606081018290526080602082018181528886018054968716156101000260001901909616969096049082018190527f3cfaa247eaa233620d23555630bc4f42e58f04645b9203627dc78a6bccdbd1bf965088959060a083019086908015610af45780601f10610ac957610100808354040283529160200191610af4565b820191906000526020600020905b815481529060010190602001808311610ad757829003601f168201915b50509550505050505060405180910390a150600195945050505050565b600160a060020a038b166000908152600660205260409020546004805491975090879081101561000257600091825260208220600290910201955060018601945091505b8354821015610b805783828154811015610002576000918252602090912001541515610bae57600192505b60018315151415610bb957898560010160005083815481101561000257600091825260209091200155610c09565b600190910190610b55565b8354600181018086558590828015829011610be557600083815260209020610be59181019083016102bf565b50505090508985600101600050828154811015610002576000918252602090912001555b610d2285600101600050805480602002602001604051908101604052809291908181526020018280548015610c5e57602002820191906000526020600020905b81548152600190910190602001808311610c49575b5050604080516020808201835260008083528351808301855281815284519283018552818352885194519397509550935083929091805910610c9d5750595b908082528060200260200182016040528015610cb4575b50935060009250600091505b8551821015610e965760008683815181101561000257906020019060200201511115610d17578582815181101561000257906020019060200201518484815181101561000257602090810290910101526001909201915b600190910190610cc0565b600160a060020a038c166000908152600860209081526040822083518154818355828552938390209194938201939092018215610d7e579160200282015b82811115610d7e578251826000505591602001919060010190610d60565b50610d8a9291506102bf565b5050610dd38b600080548190819081908190819033600160a060020a03908116911614801590610dc9575060015433600160a060020a03908116911614155b15610f0957610002565b50600185015460408051600160a060020a038e168152602081019290925280517f43a3b60275d73bc0ec9eb4442b8c921b89efb61c60c6ba410e7557fad7796bd99281900390910190a18a85600101600050866001016000508054905081805480602002602001604051908101604052809291908181526020018280548015610e7c57602002820191906000526020600020905b81548152600190910190602001808311610e67575b505050505091509850985098505050505050509250925092565b82604051805910610ea45750595b908082528060200260200182016040528015610ebb575b506000925090505b82821015610f0057838281518110156100025790602001906020020151818381518110156100025760209081029091010152600190910190610ec3565b95945050505050565b600160a060020a0387166000908152600660205260409020546004805491965090869081101561000257906000526020600020906002020160005093505060018301915060009050805b8254811015610f8a57600083828154811015610002576000918252602090912001541115610f82576001909101905b600101610f53565b50600160a060020a039590951660009081526007602052604090208590555092939250505056606060405236156100d95760e060020a6000350462fdd58e81146100e6578063219f5052146101205780633936ba1b1461014657806361db0d6d146101545780637ac7568b146101715780637d769a22146101a95780637efa592b146101c057806385831079146101e65780638da5cb5b1461023d578063b469ba2414610254578063bea5f9cd14610283578063c80f9a4f146102b4578063c952f36f14610304578063cf19463d1461039f578063df32754b146103cb578063e9f90fe6146103ed578063f2fde38b146104b3578063f4a3c3e7146104d9575b34610002576103eb610002565b34610002576104f6600435602435600860205260008281526040902080548290811015610002576000918252602090912001549150829050565b34610002576103eb60043560005433600160a060020a0390811691161461075d57610002565b34610002576104f660025481565b34610002576104f660043560066020526000908152604090205481565b346100025761050860043560048054829081101561000257906000526020600020906002020160005054600160a060020a0316905081565b3461000257610508600154600160a060020a031681565b3461000257610508600435600560205260009081526040902054600160a060020a031681565b346100025761052460043560038054829081101561000257906000526020600020906007020160005080546003820154600483015460058401546006850154939550600185019460020193600160a060020a031687565b3461000257610508600054600160a060020a031681565b346100025761065960043560243560443560008054819033600160a060020a0390811691161461077c57610002565b3461000257610659600435602435604435600080548190819033600160a060020a0390811691161461097757610002565b346100025761066d6004356024356044356000805481908190819033600160a060020a039081169116148015906102fa575060015433600160a060020a03908116911614155b15610f1957610002565b34610002576106956004356024356009805483908110156100025790600052602060002090016000508181548110156100025760009182526020918290200180546040805160026001841615610100026000190190931692909204601f8101859004850283018501909152808252909450909250908301828280156110e35780601f106110b8576101008083540402835291602001916110e3565b34610002576106596004355b600080548190819033600160a060020a039081169116146110eb57610002565b346100025760008054600160a060020a031916606060020a338102041790555b005b346100025761070360043560408051602081810183526000808352600160a060020a03851681526006909152918220546004805484919083908110156100025760009182526020808320600160a060020a0389168452600882526040938490208054855181850281018501909652808652600290940290910194508893909290918391908301828280156104a157602002820191906000526020600020905b8154815260019091019060200180831161048c575b50505050509050935093505050915091565b34610002576103eb60043560005433600160a060020a039081169116146111bc57610002565b34610002576104f660043560076020526000908152604090205481565b60408051918252519081900360200190f35b60408051600160a060020a039092168252519081900360200190f35b60408051888152606081018690526080810185905260a08101849052600160a060020a03831660c082015260e060208201818152895460026101006001831615810260001901909216049284018390529293909290840191908401908a9080156105cf5780601f106105a4576101008083540402835291602001916105cf565b820191906000526020600020905b8154815290600101906020018083116105b257829003601f168201915b50508381038252885460026000196101006001841615020190911604808252602090910190899080156106435780601f1061061857610100808354040283529160200191610643565b820191906000526020600020905b81548152906001019060200180831161062657829003601f168201915b5050995050505050505050505060405180910390f35b604080519115158252519081900360200190f35b60408051938452600160a060020a039283166020850152911682820152519081900360600190f35b60405180806020018281038252838181518152602001915080519060200190808383829060006004602084601f0104600302600f01f150905090810190601f1680156106f55780820380516001836020036101000a031916815260200191505b509250505060405180910390f35b6040518083600160a060020a03168152602001806020018281038252838181518152602001915080519060200190602002808383829060006004602084601f0104600302600f01f150905001935050505060405180910390f35b60018054606060020a80840204600160a060020a031990911617905550565b600380548690811015610002579060005260206000209060070201600050600381018590556004810184905580546040518181526001808401805494955092936002808701938a938a93919260208401928892610100908216150260001901160480156108205780601f106107fe576101008083540402835291820191610820565b820191906000526020600020905b81548152906001019060200180831161080c575b5050848054600181600116156101000203166002900480156108795780601f10610857576101008083540402835291820191610879565b820191906000526020600020905b815481529060010190602001808311610865575b5050928352506020808301919091526040805192839003810183206005880155600387015460048801548c85529184018190526060840182905260809284018381526001808a018054600292811615610100026000190116919091049486018590527f8b325bf3e4eb84c67322f2101e610d3330f4248bb997d7aeaa46a12f26379f4a98508d975095509093919260a08301908690801561095b5780601f106109305761010080835404028352916020019161095b565b820191906000526020600020905b81548152906001019060200180831161093e57829003601f168201915b50509550505050505060405180910390a1506001949350505050565b60038054600181018083559091908280158290116109ae576007028160070283600052602060002091820191016109ae9190610a97565b505050915060036000508281548110156100025790600052602060002090600702016000508681556009805491925090879081101561000257906000526020600020900160005060008154811015610002579060005260206000209001600050816001016000509080546001816001161561010002031660029004828054600181600116156101000203166002900490600052602060002090601f016020900481019282601f10610b5157805485555b50610b8d929150610b1b565b5050600060038201819055600482018190556005820155600681018054600160a060020a03191690556007015b80821115610b2f576000600082016000506000905560018201600050805460018160011615610100020316600290046000825580601f10610b0157505b5060028201600050805460018160011615610100020316600290046000825580601f10610b335750610a6a565b601f016020900490600052602060002090810190610ad491905b80821115610b2f5760008155600101610b1b565b5090565b601f016020900490600052602060002090810190610a6a9190610b1b565b82800160010185558215610a5e57600052602060002091601f016020900482015b82811115610a5e578254825591600101919060010190610b72565b505060098054879081101561000257906000526020600020900160005060018154811015610002579060005260206000209001600050816002016000509080546001816001161561010002031660029004828054600181600116156101000203166002900490600052602060002090601f016020900481019282601f10610c1f57805485555b50610c5b929150610b1b565b82800160010185558215610c1357600052602060002091601f016020900482015b82811115610c13578254825591600101919060010190610c40565b5050600381018590556004810184905580546040518181526001808401805490926002808701938b938b93926020840192889290811615610100026000190116048015610cdf5780601f10610cbd576101008083540402835291820191610cdf565b820191906000526020600020905b815481529060010190602001808311610ccb575b505084805460018160011615610100020316600290048015610d385780601f10610d16576101008083540402835291820191610d38565b820191906000526020600020905b815481529060010190602001808311610d24575b5050928352506020808301919091526040805192839003810190922060058088019190915560008054600689018054606060020a600160a060020a039384168102819004600160a060020a03199283161790925583548c855294909552948220805493821686029590950492909316919091179092559054610e3094501691508490505b600060206040519081016040528060008152602001506000600060006000600060006000600060009054906101000a9004600160a060020a0316600160a060020a031633600160a060020a031614158015610e26575060015433600160a060020a03908116911614155b156111db57610002565b505060028054600190810182556003840154600485015460408051888152908101839052606081018290526080602082018181528886018054968716156101000260001901909616969096049082018190527f3cfaa247eaa233620d23555630bc4f42e58f04645b9203627dc78a6bccdbd1bf965088959060a083019086908015610efc5780601f10610ed157610100808354040283529160200191610efc565b820191906000526020600020905b815481529060010190602001808311610edf57829003601f168201915b50509550505050505060405180910390a150600195945050505050565b6003805486908110156100025790600052602060002090600702016000506006810154909150600160a060020a0390811690881614610f5757610002565b600160a060020a038616600090815260066020526040902054158015610fb357506000805260056020527f05b8ccbb9d4d8fb16ea74ce3c29a41f1b461fbdaff4714a0d9a8eb05499746bc54600160a060020a03878116911614155b15610fc357610fc1866103ab565b505b600681018054606060020a80890204600160a060020a0319918216811790925560008781526005602052604090208054909116909117905561105487866040805160208101909152600080825280549091908290819081908190819033600160a060020a0390811691161480159061104a575060015433600160a060020a03908116911614155b1561156557610002565b5050506110618686610dbc565b505060408051600160a060020a03808b1682528916602082015280820188905290517fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef92509081900360600190a150929592505050565b820191906000526020600020905b8154815290600101906020018083116110c657829003601f168201915b505050505081565b6004805460018101808355909190828015829011611122576002028160020283600052602060002091820191016111229190611188565b50505091506004600050828154811015610002576000918252602080832060029092029091018054600160a060020a031916606060020a88810204179055600160a060020a03909516815260069094525060409092209190915550600190565b50506002015b80821115610b2f578054600160a060020a031916815560018101805460008083559182526020822061118291810190610b1b565b60008054606060020a80840204600160a060020a031990911617905550565b600160a060020a038b166000908152600660205260409020546004805491975090879081101561000257600091825260208220600290910201955060018601945091505b835482101561124a578382815481101561000257600091825260209091200154151561127857600192505b60018315151415611283578985600101600050838154811015610002576000918252602090912001556112d3565b60019091019061121f565b83546001810180865585908280158290116112af576000838152602090206112af918101908301610b1b565b50505090508985600101600050828154811015610002576000918252602090912001555b6113f08560010160005080548060200260200160405190810160405280929190818152602001828054801561132857602002820191906000526020600020905b81548152600190910190602001808311611313575b50505050505b60408051602081810183526000808352835180830185528181528451928301855281835285519451939490939192839290919080591061136b5750595b908082528060200260200182016040528015611382575b50935060009250600091505b855182101561183757600086838151811015610002579060200190602002015111156113e5578582815181101561000257906020019060200201518484815181101561000257602090810290910101526001909201915b60019091019061138e565b600160a060020a038c16600090815260086020908152604082208351815481835582855293839020919493820193909201821561144c579160200282015b8281111561144c57825182600050559160200191906001019061142e565b50611458929150610b1b565b50506114a28b5b600080548190819081908190819033600160a060020a03908116911614801590611498575060015433600160a060020a03908116911614155b156118aa57610002565b50600185015460408051600160a060020a038e168152602081019290925280517f43a3b60275d73bc0ec9eb4442b8c921b89efb61c60c6ba410e7557fad7796bd99281900390910190a18a8560010160005086600101600050805490508180548060200260200160405190810160405280929190818152602001828054801561154b57602002820191906000526020600020905b81548152600190910190602001808311611536575b505050505091509850985098505050505050509250925092565b600160a060020a0389166000908152600660205260409020546004805491955090859081101561000257906000526020600020906002020160005092505060018201905060005b81548110156115f25787828281548110156100025760009182526020909120015414156115ea57818181548110156100025760009182526020822001555b6001016115ac565b61164a82805480602002602001604051908101604052809291908181526020018280548015611328576020028201919060005260206000209081548152600190910190602001808311611313575b505050505061132e565b836001016000509080519060200190828054828255906000526020600020908101928215611697579160200282015b82811115611697578251826000505591602001919060010190611679565b506116a3929150610b1b565b505061170383600101600050805480602002602001604051908101604052809291908181526020018280548015611328576020028201919060005260206000209081548152600190910190602001808311611313575b505050505061132e565b600160a060020a038a16600090815260086020908152604082208351815481835582855293839020919493820193909201821561175f579160200282015b8281111561175f578251826000505591602001919060010190611741565b5061176b929150610b1b565b50506117768961145f565b50600183015460408051600160a060020a038c168152602081019290925280517f43a3b60275d73bc0ec9eb4442b8c921b89efb61c60c6ba410e7557fad7796bd99281900390910190a1888360010160005084600101600050805490508180548060200260200160405190810160405280929190818152602001828054801561181f57602002820191906000526020600020905b8154815260019091019060200180831161180a575b50505050509150965096509650505050509250925092565b826040518059106118455750595b90808252806020026020018201604052801561185c575b506000925090505b828210156118a157838281518110156100025790602001906020020151818381518110156100025760209081029091010152600190910190611864565b95945050505050565b600160a060020a0387166000908152600660205260409020546004805491965090869081101561000257906000526020600020906002020160005093505060018301915060009050805b825481101561192b57600083828154811015610002576000918252602090912001541115611923576001909101905b6001016118f4565b50600160a060020a039590951660009081526007602052604090208590555092939250505056",
+    "events": {
+      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef": {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "from",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "name": "to",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "name": "value",
+            "type": "uint256"
+          }
+        ],
+        "name": "Transfer",
+        "type": "event"
+      },
+      "0x3cfaa247eaa233620d23555630bc4f42e58f04645b9203627dc78a6bccdbd1bf": {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "indexed": false,
+            "name": "cp",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "hp",
+            "type": "uint256"
+          }
+        ],
+        "name": "CreatePokemon",
+        "type": "event"
+      },
+      "0x8b325bf3e4eb84c67322f2101e610d3330f4248bb997d7aeaa46a12f26379f4a": {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "indexed": false,
+            "name": "cp",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "name": "hp",
+            "type": "uint256"
+          }
+        ],
+        "name": "UpdatePokemon",
+        "type": "event"
+      },
+      "0x43a3b60275d73bc0ec9eb4442b8c921b89efb61c60c6ba410e7557fad7796bd9": {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "name": "total",
+            "type": "uint256"
+          }
+        ],
+        "name": "UpdateMasterPokemons",
+        "type": "event"
+      },
+      "0x46692c0e59ca9cd1ad8f984a9d11715ec83424398b7eed4e05c8ce84662415a8": {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "number",
+            "type": "uint256"
+          }
+        ],
+        "name": "Log1",
+        "type": "event"
+      },
+      "0x16783dda8fe899b47fa72274509d788dc4b657c9628a27189a81f451725e7de2": {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "name": "message",
+            "type": "string"
+          }
+        ],
+        "name": "Log2",
+        "type": "event"
+      }
+    },
+    "updated_at": 1478792247505,
+    "address": "0x031efa48576e4056212954233f18b12ffddaed13",
+    "links": {}
+  }
+};
+
+  Contract.checkNetwork = function(callback) {
+    var self = this;
+
+    if (this.network_id != null) {
+      return callback();
+    }
+
+    this.web3.version.network(function(err, result) {
+      if (err) return callback(err);
+
+      var network_id = result.toString();
+
+      // If we have the main network,
+      if (network_id == "1") {
+        var possible_ids = ["1", "live", "default"];
+
+        for (var i = 0; i < possible_ids.length; i++) {
+          var id = possible_ids[i];
+          if (Contract.all_networks[id] != null) {
+            network_id = id;
+            break;
+          }
+        }
+      }
+
+      if (self.all_networks[network_id] == null) {
+        return callback(new Error(self.name + " error: Can't find artifacts for network id '" + network_id + "'"));
+      }
+
+      self.setNetwork(network_id);
+      callback();
+    })
+  };
+
+  Contract.setNetwork = function(network_id) {
+    var network = this.all_networks[network_id] || {};
+
+    this.abi             = this.prototype.abi             = network.abi;
+    this.unlinked_binary = this.prototype.unlinked_binary = network.unlinked_binary;
+    this.address         = this.prototype.address         = network.address;
+    this.updated_at      = this.prototype.updated_at      = network.updated_at;
+    this.links           = this.prototype.links           = network.links || {};
+    this.events          = this.prototype.events          = network.events || {};
+
+    this.network_id = network_id;
+  };
+
+  Contract.networks = function() {
+    return Object.keys(this.all_networks);
+  };
+
+  Contract.link = function(name, address) {
+    if (typeof name == "function") {
+      var contract = name;
+
+      if (contract.address == null) {
+        throw new Error("Cannot link contract without an address.");
+      }
+
+      Contract.link(contract.contract_name, contract.address);
+
+      // Merge events so this contract knows about library's events
+      Object.keys(contract.events).forEach(function(topic) {
+        Contract.events[topic] = contract.events[topic];
+      });
+
+      return;
+    }
+
+    if (typeof name == "object") {
+      var obj = name;
+      Object.keys(obj).forEach(function(name) {
+        var a = obj[name];
+        Contract.link(name, a);
+      });
+      return;
+    }
+
+    Contract.links[name] = address;
+  };
+
+  Contract.contract_name   = Contract.prototype.contract_name   = "PokeCentral";
+  Contract.generated_with  = Contract.prototype.generated_with  = "3.2.0";
+
+  // Allow people to opt-in to breaking changes now.
+  Contract.next_gen = false;
+
+  var properties = {
+    binary: function() {
+      var binary = Contract.unlinked_binary;
+
+      Object.keys(Contract.links).forEach(function(library_name) {
+        var library_address = Contract.links[library_name];
+        var regex = new RegExp("__" + library_name + "_*", "g");
+
+        binary = binary.replace(regex, library_address.replace("0x", ""));
+      });
+
+      return binary;
+    }
+  };
+
+  Object.keys(properties).forEach(function(key) {
+    var getter = properties[key];
+
+    var definition = {};
+    definition.enumerable = true;
+    definition.configurable = false;
+    definition.get = getter;
+
+    Object.defineProperty(Contract, key, definition);
+    Object.defineProperty(Contract.prototype, key, definition);
+  });
+
+  bootstrap(Contract);
+
+  if (typeof module != "undefined" && typeof module.exports != "undefined") {
+    module.exports = Contract;
+  } else {
+    // There will only be one version of this contract in the browser,
+    // and we can use that.
+    window.PokeCentral = Contract;
+  }
+})();

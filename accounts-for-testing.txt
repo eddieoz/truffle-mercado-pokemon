@@ -1,0 +1,9 @@
+Accounts for testing
+
+Player1:
+Seed: 'eager grow art loop sister system access know truly normal case moment'
+Account: 0x616d18096ce6e1038b5c3ded080cef8ab17b3843
+
+Player2:
+Seed: 'arrest trust sword select damage outer dignity thrive practice much chase velvet'
+Account: 0x2f33f148b5ff5f76e63460e14228a671923de628
