@@ -27,7 +27,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 2. Copy the private key (password: abcd) to the keystore
     ```
-    cp UTC--2015-08-09T04-06-35.465758600Z--6a5b342ec71def8aac337b82969d9ddd811023c9 private_net/keystore
+    cp <truffle-mercado-pokemon>/support/UTC--2015-08-09T04-06-35.465758600Z--6a5b342ec71def8aac337b82969d9ddd811023c9 private_net/keystore
     ```
 
 3. Start the blockchain with a new genesis
@@ -48,7 +48,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
     ```
 
 ## Setup truffle
-1. Open the Truffle console on a new terminal
+1. Go to the truffle-mercado-pokemon dir and open the Truffle console on a new terminal
     ```
     truffle console
     ```
