@@ -55,7 +55,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 2. Run the migrate to load contracts to blockchain
     ```
-    migrate console
+    migrate --reset
     ```
 
 3. Update vars PokeCoinAddress, PokeCentralAddress and PokeMarketAddress in mercadopokemon.js
