@@ -31,7 +31,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 3. Start the blockchain with a new genesis
     ```
-    geth --datadir ./private_net init private_genesis.json
+    geth --datadir ./private_net init <truffle-mercado-pokemon>/support/private_genesis.json
     ```
 
 4. Start the node
