@@ -1,10 +1,9 @@
-# workshop-Cotidiano-201611
 # Mercado Pokémon
 
-Teaching material for Cotidiano Hackathon Workshop
+Teaching material for Basic Ethereum for Developers Workshop
 
 The featured content must be used only for educational purposes.
-This is a prototype for studying and learning about the development of RSK Dapps (decentralized applications) and should not be used in production.
+This is a prototype for studying and learning about the development of Dapps (decentralized applications) and should not be used in production.
 
 ## What is the Mercado Pokémon?
 Mercado Pokémon is a demo of creating coins and Pokémons in Ethereum platform, as well as the trading between different accounts.
