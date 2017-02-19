@@ -50,17 +50,21 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 1. Open file `accounts-for-testing.txt`
 
-2. Load `contracts/pokecoin.sol` in Mist (contracts > Deploy new contract) and use the demo accounts from Player1 and Player2 to launch the contract.
+2. Load `contracts/pokecoin.sol` in Mist (contracts > Deploy new contract) and use the demo account addresses from Player1 and Player2 to launch the contract.
 
-3. Load `contracts/pokecentral.sol` in Mist and use the demo accounts from Player1 and Player2 to launch the contract.
+3. Load `contracts/pokecentral.sol` in Mist and use the demo account addresses from Player1 and Player2 to launch the contract.
 
-4. Load `contracts/pokemarket.sol` no Mist and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract.
+4. Write the `Pokecoin` and `PokeCentral` addresses on a notepad.
 
-5. You must update `PokeMarketAddress` in the contracts `PokeCoin` e `PokeCentral` to enable access.
+5. Load `contracts/pokemarket.sol` no Mist and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract.
 
-6. Update the variables `PokeCoinAddress`, `PokeCentralAddress` e `PokeMarketAddress` in `javascripts/mercadopokemon.js`
+6. Write the `Pokemarket` address on a notepad.
 
-7. Load `app/layer1.html` and `app/player2.html` in separate windows on Chrome browser.
+7. You must update `PokeMarketAddress` in the contracts `PokeCoin` e `PokeCentral` to enable access.
+
+8. Update the variables `PokeCoinAddress`, `PokeCentralAddress` e `PokeMarketAddress` in `javascripts/mercadopokemon.js`
+
+9. Load `app/player1.html` and `app/player2.html` in separate windows on Chrome browser.
 
 
 ## Setup truffle
