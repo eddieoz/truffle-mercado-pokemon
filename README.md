@@ -48,19 +48,19 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 ## Setup using Mist or Ethereum wallet (for using Truffle, jump to the next section)
 
-1. Open file accounts-for-testing.txt
+1. Open file `accounts-for-testing.txt`
 
-2. Load contracts/pokecoin.sol in Mist (contracts > Deploy new contract) and use the demo accounts from Player1 and Player2 to launch the contract.
+2. Load `contracts/pokecoin.sol` in Mist (contracts > Deploy new contract) and use the demo accounts from Player1 and Player2 to launch the contract.
 
-3. Load contracts/pokecentral.sol in Mist and use the demo accounts from Player1 and Player2 to launch the contract.
+3. Load `contracts/pokecentral.sol` in Mist and use the demo accounts from Player1 and Player2 to launch the contract.
 
-4. Load contracts/pokemarket.sol no Mist and use PokeCoinAddress and PokeCentralAddress to launch the contract.
+4. Load `contracts/pokemarket.sol` no Mist and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract.
 
-5. You must update PokeMarketAddress in the contracts PokeCoin e PokeCentral to enable access.
+5. You must update `PokeMarketAddress` in the contracts `PokeCoin` e `PokeCentral` to enable access.
 
-6. Update the variables PokeCoinAddress, PokeCentralAddress e PokeMarketAddress in mercadopokemon.js
+6. Update the variables `PokeCoinAddress`, `PokeCentralAddress` e `PokeMarketAddress` in `javascripts/mercadopokemon.js`
 
-7. Load player1.html and player2.html in separate windows.
+7. Load `app/layer1.html` and `app/player2.html` in separate windows on Chrome browser.
 
 
 ## Setup truffle
