@@ -46,6 +46,23 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
     miner.start(1)
     ```
 
+## Setup using Mist or Ethereum wallet (for using Truffle, jump to the next section)
+
+1. Open file accounts-for-testing.txt
+
+2. Load contracts/pokecoin.sol in Mist (contracts > Deploy new contract) and use the demo accounts from Player1 and Player2 to launch the contract.
+
+3. Load contracts/pokecentral.sol in Mist and use the demo accounts from Player1 and Player2 to launch the contract.
+
+4. Load contracts/pokemarket.sol no Mist and use PokeCoinAddress and PokeCentralAddress to launch the contract.
+
+5. You must update PokeMarketAddress in the contracts PokeCoin e PokeCentral to enable access.
+
+6. Update the variables PokeCoinAddress, PokeCentralAddress e PokeMarketAddress in mercadopokemon.js
+
+7. Load player1.html and player2.html in separate windows.
+
+
 ## Setup truffle
 1. Go to the truffle-mercado-pokemon dir and open the Truffle console on a new terminal
     ```
@@ -156,9 +173,7 @@ Open player1.html and player2.html each one in a new window in Chrome
     ```
     pokecoin.balanceOf(account1Demo);
     pokecoin.balanceOf(account2Demo);
-    ```
-
-
+    ```
 
 ## How it works:
 
