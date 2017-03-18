@@ -46,17 +46,17 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
     miner.start(1)
     ```
 
-## Setup using Mist or Ethereum wallet (for using Truffle, jump to the next section)
+## Setup using Ethereum Wallet (for using Truffle, jump to the next section)
 
 1. Open file `accounts-for-testing.txt`
 
-2. Load `contracts/pokecoin.sol` in Mist (contracts > Deploy new contract) and use the demo account addresses from Player1 and Player2 to launch the contract.
+2. Load `contracts/pokecoin.sol` in Ethereum Wallet (contracts > Deploy new contract) and use the demo account addresses from Player1 and Player2 to launch the contract.
 
-3. Load `contracts/pokecentral.sol` in Mist and use the demo account addresses from Player1 and Player2 to launch the contract.
+3. Load `contracts/pokecentral.sol` in Ethereum Wallet and use the demo account addresses from Player1 and Player2 to launch the contract.
 
 4. Write the `Pokecoin` and `PokeCentral` addresses on a notepad.
 
-5. Load `contracts/pokemarket.sol` no Mist and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract.
+5. Load `contracts/pokemarket.sol` no Ethereum Wallet and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract.
 
 6. Write the `Pokemarket` address on a notepad.
 
