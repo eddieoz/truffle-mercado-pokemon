@@ -15,7 +15,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 - Truffle **
 - TestRPC (problem with gas for pokemon contracts)
 - Solidity Browser
-- Mist
+- Ethereum wallet
 
 ## Setup a ethereum private net:
 
