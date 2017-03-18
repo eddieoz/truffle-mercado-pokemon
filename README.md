@@ -50,13 +50,13 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 1. Open file `accounts-for-testing.txt`
 
-2. Load `contracts/pokecoin.sol` in Ethereum Wallet (contracts > Deploy new contract) and use the demo account addresses from Player1 and Player2 to launch the contract.
+2. Load `contracts/pokecoin.sol` in Ethereum Wallet (contracts > Deploy new contract) and use the demo account addresses from Player1 and Player2 to launch the contract. (2000000 gas)
 
-3. Load `contracts/pokecentral.sol` in Ethereum Wallet and use the demo account addresses from Player1 and Player2 to launch the contract.
+3. Load `contracts/pokecentral.sol` in Ethereum Wallet and use the demo account addresses from Player1 and Player2 to launch the contract. (6000000 gas)
 
 4. Write the `Pokecoin` and `PokeCentral` addresses on a notepad.
 
-5. Load `contracts/pokemarket.sol` no Ethereum Wallet and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract.
+5. Load `contracts/pokemarket.sol` no Ethereum Wallet and use `PokeCoinAddress` and `PokeCentralAddress` to launch the contract. (6000000 gas)
 
 6. Write the `Pokemarket` address on a notepad.
 
