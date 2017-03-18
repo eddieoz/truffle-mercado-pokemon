@@ -12,7 +12,7 @@ Also is presented the concept of a non-infrastructure environment, which uses bl
 
 ## Pre-requisites:
 - Geth **
-- Truffle **
+- Truffle (2.1.2)**
 - TestRPC (problem with gas for pokemon contracts)
 - Solidity Browser
 - Ethereum wallet
