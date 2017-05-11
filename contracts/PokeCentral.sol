@@ -25,7 +25,7 @@ contract accessControlled {
     address public owner;
     address public pokeMarketAddress;
 
-    function owned() {
+    function accessControlled() {
         owner = msg.sender;
     }
 
