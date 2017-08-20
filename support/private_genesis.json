@@ -1,6 +1,12 @@
 {
     "nonce": "0x0000000000000042", 
     "difficulty": "0x4", 
+    "config": {
+        "chainId": 0,
+        "homesteadBlock": 0,
+        "eip155Block": 0,
+        "eip158Block": 0
+    },
     "alloc": {
         "6a5b342ec71def8aac337b82969d9ddd811023c9": {
             "balance": "10000000000000000000000000"
