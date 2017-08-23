@@ -2,7 +2,7 @@
     "nonce": "0x0000000000000042", 
     "difficulty": "0x4", 
     "config": {
-        "chainId": 0,
+        "chainId": 20,
         "homesteadBlock": 0,
         "eip155Block": 0,
         "eip158Block": 0
